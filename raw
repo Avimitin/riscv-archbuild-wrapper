@@ -1,0 +1,384 @@
+#!/usr/bin/env python
+# vim: set ft=python
+
+import argparse
+import sys
+import asyncio
+import os
+import json
+
+ANSI_GREEN = "\033[0;32m"
+ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_UNDERLINE = "\033[4m"
+
+
+def ansi_underline(s: str) -> str:
+    return f"{ANSI_UNDERLINE}{s}{ANSI_RESET}"
+
+
+def ansi_bold(s: str) -> str:
+    return f"{ANSI_BOLD}{s}{ANSI_RESET}"
+
+
+def getenv_or(key: str, default: str) -> str:
+    val = os.getenv(key)
+    if val == None:
+        return default
+
+    return val
+
+
+def eprint(fmt: str, *args, **kwargs):
+    prefix = "\033[0;31m[ERROR]\033[0m"
+    print(f"{prefix} {fmt}", *args, file=sys.stderr, **kwargs)
+
+
+def dbg(fmt: str, *args, **kwargs):
+    prefix = "\033[0;33m[DEBUG]\033[0m"
+    print(f"{prefix} {fmt}", *args, **kwargs)
+
+
+def info(fmt: str, *args, **kwargs):
+    prefix = f"{ANSI_GREEN}[INFO]{ANSI_RESET}"
+    print(f"{prefix} {fmt}", *args, **kwargs)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="An asp & archbuild & rsync wrapper script"
+    )
+    # -s/--server
+    parser.add_argument(
+        "-s",
+        "--server",
+        metavar="[Remote Server]",
+        dest="server",
+        help="Specify which server to run the build process",
+    )
+    # --update-server
+    parser.add_argument(
+        "--update-server",
+        dest="force_update_server",
+        action="store_true",
+        help="Run server test only. This will overwrite the context file.",
+    )
+    # -r/--rebuild
+    parser.add_argument(
+        "-r",
+        "--rebuild",
+        dest="rebuild_mode",
+        action="store_true",
+        help="Enable rebuild mode: send local PKGBUILD file to remote for rebuild",
+    )
+    # -c/--clean
+    parser.add_argument(
+        "-c",
+        "--clean",
+        dest="clean_mode",
+        action="store_true",
+        help="Enable clean mode: Clean local and remote package file",
+    )
+    # -p/--prepare
+    parser.add_argument(
+        "-p",
+        "--prepare",
+        dest="prepare_mode",
+        action="store_true",
+        help="Enable prepare mode: Run asp checkout on remote server only",
+    )
+    # --test
+    parser.add_argument(
+        "--test",
+        dest="test_func",
+        metavar="Function Params",
+        nargs="*",
+        help="Debug options, user should never use this",
+    )
+
+    parser.add_argument(
+        dest="pkgname", metavar="[Package Name]", nargs="?", default="<NONE>"
+    )
+
+    return parser.parse_args()
+
+
+async def has_exec(exec: str) -> bool:
+    script = f"command -v {exec}"
+
+    proc = await asyncio.create_subprocess_shell(
+        script,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+    await proc.communicate()
+
+    if proc.returncode != 0:
+        return False
+
+    return True
+
+
+# try_get_context try to open the `.ctx.json` file. If the file exist, it returns
+# the content. If the file is not exist or open function throw
+def try_get_context() -> (str | None):
+    try:
+        with open(".ctx.json", "r") as file:
+            content = file.read()
+            return content
+    except FileNotFoundError:
+        return None
+    except:
+        eprint(f"Fail to open .ctx.json file")
+        raise
+
+
+async def test_server(server: str, debug=False):
+    cmd = f"/usr/bin/ssh {server} uptime"
+    if debug:
+        dbg(f"Testing server: {server}")
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        eprint(
+            f"Fail to get uptime information from server: {server}\n\tErr: {stderr.decode()}"
+        )
+        return -1
+
+    output = stdout.decode()
+    load = float(output.split(",").pop().strip())
+    return (server, load)
+
+
+async def get_server(force=False) -> str:
+    # if force update, skip this
+    if not force:
+        # if we have .ctx.json file at local
+        context = try_get_context()
+        if not context == None:
+            context = json.loads(context)
+            return context["server"]
+
+    # test
+    server_list = getenv_or("RVSERVERS", "luxio,shinx,minun")
+    server_list = server_list.split(",")
+
+    info(f"Pending test server: {server_list}")
+    wg = []
+    for server in server_list:
+        task = asyncio.create_task(test_server(server))
+        wg.append(task)
+
+    lowest = 0.00
+    select = ""
+    for task in wg:
+        server, load = await task
+        if lowest == 0.00 or load < lowest:
+            lowest = load
+            select = server
+
+    # save
+    new_context = '{"server":"%s"}' % select
+    # overwrite the json file
+    with open(".ctx.json", "w") as f:
+        f.write(new_context)
+
+    return select
+
+
+# A test handler that can help debugging single function
+# Usage: ./raw --test fn a b c
+# If you are going to test async function:
+# ./raw --test async fn a b c
+async def handle_test(args: list[str]) -> int:
+    length = len(args)
+    if length < 1:
+        eprint("No keyword is specified")
+        return 1
+
+    keyword = args[0]
+
+    is_async = False
+    if keyword == "await":
+        is_async = True
+
+    if is_async:
+        if length < 2:
+            eprint("No function name given")
+            return 1
+        func = args[1]
+        params = args[2:]
+        to_run = f"{func}({','.join(params)})"
+        print(f"Going to await {to_run}")
+        await eval(to_run)
+    else:
+        params = args[1:]
+        eval(f"{keyword}({','.join(params)})")
+
+    return 0
+
+
+class BuildContext:
+    def __init__(self, server: str, package: str) -> None:
+        self.server = server
+        self.package = package
+
+    async def prepare(self) -> None:
+        home_dir = await self.ssh("echo $HOME")
+
+        pkgpath = getenv_or("RVPKGPATH", f"{home_dir}/riscv/packages")
+        self.cachepath = getenv_or("RVCACHEPATH", f"{home_dir}/.cache/rvpkgcache")
+
+        await self.ssh(f"mkdir -p {pkgpath}")
+        info(f"PKGBUILD Path: {ansi_underline(pkgpath)}")
+
+        await self.ssh(f"mkdir -p {self.cachepath}")
+        info(f"Package Cache: {ansi_underline(self.cachepath)}")
+
+        info("Running asp update")
+        await self.ssh("asp update")
+
+        info("Preparing PKGBUILD file")
+        if await self.ssh(f"test -d {pkgpath}/{self.package}", True) == None:
+            info(f"Downloading {ansi_bold(self.package)} PKGBUILD file")
+            await self.ssh(f"cd {pkgpath} && asp checkout {self.package}")
+
+        self.pkgpath = f"{pkgpath}/{self.package}"
+        await self.ssh(
+            f'cd {self.pkgpath}/trunk && setconf PKGBUILD arch "(riscv64 x86_64)"'
+        )
+
+    async def ssh(self, cmd: str, expect_fail=False) -> str | None:
+        proc = await asyncio.create_subprocess_shell(
+            f"/usr/bin/ssh {self.server} '{cmd}'",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            return stdout.decode().strip()
+        else:
+            if not expect_fail:
+                eprint(f"Fail to run command {cmd}\n\nGet error:\n\t{stderr}")
+            return None
+
+    async def send_file(self, file: str) -> None:
+        proc = await asyncio.create_subprocess_shell(
+            f"/usr/bin/rsync -az {file} {self.server}:{self.pkgpath}/trunk/",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            eprint(f"Fail to send file {file}\n\nGet error:\n\t{stderr}")
+            return None
+
+    async def pull_file(self, path: str) -> None:
+        proc = await asyncio.create_subprocess_shell(
+                f"/usr/bin/rsync -az {self.server}:{path} .",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            eprint(f"Fail to pull file from path {ansi_underline(path)}\n\nGet error:\n\t{stderr}")
+
+    async def build(self) -> int:
+        info("Start building")
+        change_dir = f"cd {self.pkgpath}/trunk"
+        build_cmd = (
+            f'extra-riscv64-build -- -d "{self.cachepath}:/var/cache/pacman/pkg/"'
+        )
+        proc = await asyncio.create_subprocess_shell(
+            f"/usr/bin/ssh {self.server} '{change_dir};{build_cmd}'",
+        )
+        await proc.communicate()
+        if proc.returncode != 0:
+            eprint(f"Fail to build package {self.package}")
+            info("Pulling remote PKGBUILD")
+            if os.path.exists("PKGBUILD"):
+                ok=input("There is a PKGBUILD at local already, do you want to cover it? y/N")
+                if ok == "y" or ok == "Y":
+                    await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+            return 1
+        else:
+            info(f"Package {ansi_bold(self.package)} is successfully built!")
+
+        return 0
+
+
+async def handle_build(server: str, package: str, prepare=False, rebuild=False) -> int:
+    if package == "<NONE>":
+        eprint("No package name specified, abort!")
+        return 1
+
+    ctx = BuildContext(server, package)
+    await ctx.prepare()
+
+    if prepare:
+        info("Prepare jobs is done, exiting...")
+        return 0
+
+    if rebuild:
+        if os.path.exists("PKGBUILD"):
+            info("Sending local PKGBUILD to remote")
+            await ctx.send_file("PKGBUILD")
+        else:
+            eprint("No PKGBUILD file found on local")
+
+    return await ctx.build()
+
+
+async def handle_clean() -> int:
+    return 0
+
+
+async def run() -> int:
+    args = parse_args()
+
+    if args.test_func != None:
+        code = await handle_test(args.test_func)
+        return code
+
+    has_ssh = await has_exec("ssh")
+    if not has_ssh:
+        eprint("No ssh found on this machine, aborted")
+        return 1
+    has_rsync = await has_exec("rsync")
+    if not has_rsync:
+        eprint("No rsync found on this machine, aborted")
+        return 1
+
+    server = ""
+    if args.server == None:
+        server = await get_server(force=args.force_update_server)
+    else:
+        server = args.server
+
+    info(f"Selected Server: {ANSI_GREEN}{ANSI_BOLD}{server}{ANSI_RESET}")
+
+    # return when using --update-server flag
+    if args.force_update_server:
+        return 0
+
+    if args.clean_mode:
+        return await handle_clean()
+
+    return await handle_build(
+        server,
+        args.pkgname,
+        args.prepare_mode,
+        args.rebuild_mode,
+    )
+
+
+if __name__ == "__main__":
+    exit_id = asyncio.run(run())
+    sys.exit(exit_id)
