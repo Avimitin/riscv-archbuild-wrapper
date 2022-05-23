@@ -248,6 +248,9 @@ class BuildContext:
             info(f"Downloading {ansi_bold(self.package)} PKGBUILD file")
             await self.ssh(f"cd {pkgpath} && asp checkout {self.package}")
 
+        info("Save a copy of the PKGBUILD to local")
+        await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+
         self.pkgpath = f"{pkgpath}/{self.package}"
         await self.ssh(
             f'cd {self.pkgpath}/trunk && setconf PKGBUILD arch "(riscv64 x86_64)"'
