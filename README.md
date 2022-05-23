@@ -1,5 +1,11 @@
 # RAW (RISC-V Archbuild Wrapper)
 
+- Install:
+
+```bash
+curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/master/raw' -o ./raw
+```
+
 - Usage:
 
 ```bash
