@@ -224,9 +224,20 @@ async def handle_test(args: list[str]) -> int:
 
 
 class BuildContext:
-    def __init__(self, server: str, package: str) -> None:
-        self.server = server
-        self.package = package
+    def __init__(self, **kwargs) -> None:
+        path = kwargs["file_path"]
+        if path == None:
+            self.server = kwargs["server"]
+            self.package = kwargs["package"]
+        else:
+            with open(path, "r") as f:
+                s = f.read()
+                ctx = json.loads(s)
+
+            self.server = ctx["server"]
+            self.package = ctx["server"]
+            self.pkgpath = ctx["pkgpath"]
+            self.cachepath = ctx["cachepath"]
 
     async def prepare(self) -> None:
         home_dir = await self.ssh("echo $HOME")
@@ -340,12 +351,9 @@ async def handle_build(server: str, package: str, prepare=False, rebuild=False) 
         if not os.path.exists(".ctx.json"):
             eprint("No context file found, and no package name is given, abort!")
             return 1
-
-        with open(".ctx.json", "r") as f:
-            s = f.read()
-            ctx = json.loads(s)
+        ctx = BuildContext(path=".ctx.json")
     else:
-        ctx = BuildContext(server, package)
+        ctx = BuildContext(server=server, package=package)
 
     await ctx.prepare()
 
