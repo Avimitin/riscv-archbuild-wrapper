@@ -281,14 +281,16 @@ class BuildContext:
 
     async def pull_file(self, path: str) -> None:
         proc = await asyncio.create_subprocess_shell(
-                f"/usr/bin/rsync -az {self.server}:{path} .",
+            f"/usr/bin/rsync -az {self.server}:{path} .",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
 
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
-            eprint(f"Fail to pull file from path {ansi_underline(path)}\n\nGet error:\n\t{stderr}")
+            eprint(
+                f"Fail to pull file from path {ansi_underline(path)}\n\nGet error:\n\t{stderr}"
+            )
 
     async def build(self) -> int:
         info("Start building")
@@ -300,26 +302,47 @@ class BuildContext:
             f"/usr/bin/ssh {self.server} '{change_dir};{build_cmd}'",
         )
         await proc.communicate()
-        if proc.returncode != 0:
-            eprint(f"Fail to build package {self.package}")
-            info("Pulling remote PKGBUILD")
-            if os.path.exists("PKGBUILD"):
-                ok=input("There is a PKGBUILD at local already, do you want to cover it? y/N")
-                if ok == "y" or ok == "Y":
-                    await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
-            return 1
-        else:
+        if proc.returncode == 0:
             info(f"Package {ansi_bold(self.package)} is successfully built!")
+            return 0
 
-        return 0
+        eprint(f"Fail to build package {self.package}")
+
+        info("Pulling remote PKGBUILD")
+        if not os.path.exists("PKGBUILD"):
+            await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+        else:
+            ok = input(
+                "There is a PKGBUILD at local already, do you want to cover it? y/N"
+            )
+            if ok == "y" or ok == "Y":
+                await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+
+        info("Downloading log")
+        await self.pull_file(f"{self.pkgpath}/trunk/*.log")
+
+        info("Saving context")
+        jstr = json.dumps(self.__dict__)
+        with open(".ctx.json", "w") as f:
+            f.write(jstr)
+        return 1
 
 
 async def handle_build(server: str, package: str, prepare=False, rebuild=False) -> int:
-    if package == "<NONE>":
-        eprint("No package name specified, abort!")
-        return 1
+    ctx: BuildContext
 
-    ctx = BuildContext(server, package)
+    if package == "<NONE>":
+        info("No package name specified, loading local context!")
+        if not os.path.exists(".ctx.json"):
+            eprint("No context file found, and no package name is given, abort!")
+            return 1
+
+        with open(".ctx.json", "r") as f:
+            s = f.read()
+            ctx = json.loads(s)
+    else:
+        ctx = BuildContext(server, package)
+
     await ctx.prepare()
 
     if prepare:
