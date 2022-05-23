@@ -249,7 +249,8 @@ class BuildContext:
             await self.ssh(f"cd {pkgpath} && asp checkout {self.package}")
 
         info("Save a copy of the PKGBUILD to local")
-        await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+        if not os.path.exists("PKGBUILD"):
+            await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
 
         self.pkgpath = f"{pkgpath}/{self.package}"
         await self.ssh(
