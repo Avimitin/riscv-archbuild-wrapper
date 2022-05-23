@@ -25,3 +25,51 @@ curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/mas
 # Run server test only. It will overwrite the local test result buffer.
 ./raw --update-server
 ```
+
+## My workflow
+
+- Failing package
+
+```bash
+# Preparing
+mkdir -p $HOME/riscv/packages
+cd $HOME/riscv/packages
+# Assuming that I am going to fix iana-etc
+mkdir iana-etc
+cd iana-etc
+curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/master/raw' -o ./raw
+
+# First try
+./raw iana-etc
+
+# If fail
+ls -a
+# output
+# .ctx.json PKGBUILD raw build.log prepare.log ...
+
+# If I need to modify source code
+./raw --download-source
+ls -a
+# output
+# .ctx.json PKGBUILD raw build.log prepare.log iana-etc-src/ ...
+
+
+# After fix
+./raw --send a.patch b.patch c.patch
+./raw --rebuild
+```
+
+- Rotten package
+
+```bash
+mkdir iana-etc
+cd iana-etc
+
+# if the remote and local doesn't download PKGBUILD file yet
+./raw iana-etc --prepare
+
+cp archriscv-packages/iana-etc/riscv64.patch .
+patch -Ni riscv64.patch
+
+./raw iana-etc --rebuild
+```
