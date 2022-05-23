@@ -26,6 +26,13 @@ curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/mas
 ./raw --update-server
 ```
 
+## TODO
+
+- [ ] Add download source
+- [ ] Add context - json dumper
+- [ ] Document
+- [ ] Smoking test
+
 ## My workflow
 
 - Failing package
