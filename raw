@@ -6,6 +6,7 @@ import sys
 import asyncio
 import os
 import json
+import re
 
 ANSI_GREEN = "\033[0;32m"
 ANSI_RESET = "\033[0m"
@@ -224,10 +225,14 @@ async def handle_test(args: list[str]) -> int:
 
 
 class BuildContext:
-    def __init__(self, **kwargs) -> None:
-        if "file_path" in kwargs:
-            path = kwargs["file_path"]
-            with open(path, "r") as f:
+    def __init__(
+        self,
+        server: str | None = None,
+        package: str | None = None,
+        file: str | None = None,
+    ) -> None:
+        if file != None:
+            with open(file, "r") as f:
                 s = f.read()
                 ctx = json.loads(s)
 
@@ -236,8 +241,11 @@ class BuildContext:
             self.pkgpath = ctx["pkgpath"]
             self.cachepath = ctx["cachepath"]
         else:
-            self.server = kwargs["server"]
-            self.package = kwargs["package"]
+            if server == None or package == None:
+                eprint("BuildContext is init without enought argument!")
+                sys.exit(1)
+            self.server = server
+            self.package = package
 
     async def prepare(self) -> None:
         home_dir = await self.ssh("echo $HOME")
@@ -308,22 +316,54 @@ class BuildContext:
                 f"Fail to pull file from path {ansi_underline(path)}\n\nGet error:\n\t{stderr}"
             )
 
-    async def build(self) -> int:
-        info("Start building")
+    async def read_stream(self, stream: asyncio.StreamReader|None) -> str|None:
+        p = re.compile(r"\(unknown public key ([0-9a-fA-F]+)\)")
+        if stream == None:
+            return None
+        while True:
+            line = await stream.readline()
+            if not line:
+                return None
+            print(line)
+            match = p.match(line.decode())
+            if match:
+                info("GPG key not found on local, try downloading...")
+                await self.ssh("ssh --recv-keys "+ match.group(1))
+                info("Downloaded, rebuild the package...")
+                return match.group(1)
+
+    async def archbuild(self) -> int|None:
         change_dir = f"cd {self.pkgpath}/trunk"
         build_cmd = (
             f'extra-riscv64-build -- -d "{self.cachepath}:/var/cache/pacman/pkg/"'
         )
         proc = await asyncio.create_subprocess_shell(
             f"/usr/bin/ssh {self.server} '{change_dir};{build_cmd}'",
+            stdout=asyncio.subprocess.PIPE,
         )
-        await proc.communicate()
-        if proc.returncode == 0:
+        gpg_key = await self.read_stream(proc.stdout)
+
+        await proc.wait()
+        return proc.returncode
+
+    async def build(self) -> int:
+        info("Start building")
+        code = await self.archbuild()
+        if code == 0:
             info(f"Package {ansi_bold(self.package)} is successfully built!")
             return 0
 
+        code = await self.archbuild()
+
         await self.after_build()
         return 1
+
+    async def download_log(self) -> None:
+        if self.ssh(f"test -e {self.pkgpath}/trunk/*.log", True) != None:
+            info("Downloading log")
+            await self.pull_file(f"{self.pkgpath}/trunk/*.log")
+        else:
+            info("No log found for this package")
 
     async def after_build(self):
         eprint(f"Fail to build package {self.package}")
@@ -338,10 +378,6 @@ class BuildContext:
             if ok == "y" or ok == "Y":
                 info("Downloading PKGBUILD")
                 await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
-
-        if self.ssh(f"test -e {self.pkgpath}/trunk/*.log", True) != None:
-            info("Downloading log")
-            await self.pull_file(f"{self.pkgpath}/trunk/*.log")
 
         info("Saving context")
         jstr = json.dumps(self.__dict__)
@@ -358,7 +394,7 @@ async def handle_build(server: str, package: str, prepare=False, rebuild=False) 
         if not os.path.exists(".ctx.json"):
             eprint("No context file found, and no package name is given, abort!")
             return 1
-        ctx = BuildContext(path=".ctx.json")
+        ctx = BuildContext(file=".ctx.json")
     else:
         ctx = BuildContext(server=server, package=package)
 
