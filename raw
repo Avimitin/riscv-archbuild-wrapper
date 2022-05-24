@@ -225,11 +225,8 @@ async def handle_test(args: list[str]) -> int:
 
 class BuildContext:
     def __init__(self, **kwargs) -> None:
-        path = kwargs["file_path"]
-        if path == None:
-            self.server = kwargs["server"]
-            self.package = kwargs["package"]
-        else:
+        if "file_path" in kwargs:
+            path = kwargs["file_path"]
             with open(path, "r") as f:
                 s = f.read()
                 ctx = json.loads(s)
@@ -238,6 +235,9 @@ class BuildContext:
             self.package = ctx["server"]
             self.pkgpath = ctx["pkgpath"]
             self.cachepath = ctx["cachepath"]
+        else:
+            self.server = kwargs["server"]
+            self.package = kwargs["package"]
 
     async def prepare(self) -> None:
         home_dir = await self.ssh("echo $HOME")
@@ -259,11 +259,12 @@ class BuildContext:
             info(f"Downloading {ansi_bold(self.package)} PKGBUILD file")
             await self.ssh(f"cd {pkgpath} && asp checkout {self.package}")
 
+        self.pkgpath = f"{pkgpath}/{self.package}"
+
         info("Save a copy of the PKGBUILD to local")
         if not os.path.exists("PKGBUILD"):
             await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
 
-        self.pkgpath = f"{pkgpath}/{self.package}"
         await self.ssh(
             f'cd {self.pkgpath}/trunk && setconf PKGBUILD arch "(riscv64 x86_64)"'
         )
@@ -279,7 +280,7 @@ class BuildContext:
             return stdout.decode().strip()
         else:
             if not expect_fail:
-                eprint(f"Fail to run command {cmd}\n\nGet error:\n\t{stderr}")
+                eprint(f"Fail to run command {cmd}\n\nGet error:\n\t{stderr.decode()}")
             return None
 
     async def send_file(self, file: str) -> None:
@@ -291,7 +292,7 @@ class BuildContext:
 
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
-            eprint(f"Fail to send file {file}\n\nGet error:\n\t{stderr}")
+            eprint(f"Fail to send file {file}\n\nGet error:\n\t{stderr.decode()}")
             return None
 
     async def pull_file(self, path: str) -> None:
@@ -321,6 +322,10 @@ class BuildContext:
             info(f"Package {ansi_bold(self.package)} is successfully built!")
             return 0
 
+        await self.after_build()
+        return 1
+
+    async def after_build(self):
         eprint(f"Fail to build package {self.package}")
 
         info("Pulling remote PKGBUILD")
@@ -328,13 +333,15 @@ class BuildContext:
             await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
         else:
             ok = input(
-                "There is a PKGBUILD at local already, do you want to cover it? y/N"
+                "There is a PKGBUILD at local already, do you want to cover it? y/N: "
             )
             if ok == "y" or ok == "Y":
+                info("Downloading PKGBUILD")
                 await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
 
-        info("Downloading log")
-        await self.pull_file(f"{self.pkgpath}/trunk/*.log")
+        if self.ssh(f"test -e {self.pkgpath}/trunk/*.log", True) != None:
+            info("Downloading log")
+            await self.pull_file(f"{self.pkgpath}/trunk/*.log")
 
         info("Saving context")
         jstr = json.dumps(self.__dict__)
