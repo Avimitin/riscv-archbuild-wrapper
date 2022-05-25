@@ -7,6 +7,8 @@ import asyncio
 import os
 import json
 import re
+import aiohttp
+import aiofiles
 
 ANSI_GREEN = "\033[0;32m"
 ANSI_YELLOW = "\033[0;33m"
@@ -15,6 +17,8 @@ ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
 ANSI_UNDERLINE = "\033[4m"
 DISABLE_EMOJI = False
+
+NOQEMU_LIST_URL = "https://raw.githubusercontent.com/felixonmars/archriscv-packages/master/qemu-user-blacklist.txt"
 
 # Display underline style text by ANSI escape code
 def ansi_underline(s: str) -> str:
@@ -276,12 +280,36 @@ class BuildContext:
             self.package = ctx["server"]
             self.pkgpath = ctx["pkgpath"]
             self.cachepath = ctx["cachepath"]
+            self.noqemu_list_file = ctx["noqemu_list_file"]
         else:
             if server == None or package == None:
                 eprint("BuildContext is init without enought argument!")
                 sys.exit(1)
             self.server = server
             self.package = package
+
+    async def _get_noqemu_list(self) -> str | None:
+        info("Fetching noqemu blacklist")
+        # If we have local version
+        if os.path.exists("noqemu-list.txt"):
+            async with aiofiles.open("noqemu-list.txt", "r") as file:
+                return await file.read()
+
+        # If not, we download one
+        async with aiohttp.ClientSession() as session:
+            async with session.get(NOQEMU_LIST_URL) as response:
+                if response.status != 200:
+                    warn("Fail to download noqemu list. Skip noqemu check")
+                    return None
+
+                body = await response.text()
+                info(
+                    "Successfully downloaded noqemu list, saving to noqemu-list.txt file"
+                )
+                async with aiofiles.open("noqemu-list.txt", "w") as file:
+                    await file.write(body)
+
+                return body
 
     # Prepare the build environment for building the packege with the below steps:
     #   1. mkdir -p ${RVPKGPATH:-/home/user/riscv/package}
@@ -291,6 +319,7 @@ class BuildContext:
     #   5. rsync $SERVER/$RVPKGPATH/$PACKAGE/trunk/PKGBUILD .
     #   6. setconf $RVPKGPATH/$PACKAGE/trunk/PKGBUILD arch "(riscv64 x86_64)"
     async def prepare(self) -> None:
+        get_qemu_task = asyncio.create_task(self._get_noqemu_list())
         home_dir = await self._ssh("echo $HOME")
 
         pkgpath = getenv_or("RVPKGPATH", f"{home_dir}/riscv/packages")
@@ -319,6 +348,26 @@ class BuildContext:
         await self._ssh(
             f'cd {self.pkgpath}/trunk && setconf PKGBUILD arch "(riscv64 x86_64)"'
         )
+
+        noqemu_list = await get_qemu_task
+        if noqemu_list is None:
+            return
+
+        if noqemu_list.find(self.package) == -1:
+            return
+
+        arch = await self._ssh("uname -m")
+        if arch is None:
+            return
+
+        if arch.strip() != "riscv64":
+            warn(
+                "This package is in noqemu black list, but you are not building it on RISC-V board."
+            )
+            confirm = input("Do you still want to continue? [y/N]: ")
+            if confirm != "y" and confirm != "Y":
+                info("Exit by user")
+                sys.exit(1)
 
     # The main function that should be called by outside to start an actual package build
     async def build(self) -> int:
