@@ -14,14 +14,16 @@ ANSI_BOLD = "\033[1m"
 ANSI_UNDERLINE = "\033[4m"
 
 
+# Display underline style text by ANSI escape code
 def ansi_underline(s: str) -> str:
     return f"{ANSI_UNDERLINE}{s}{ANSI_RESET}"
 
 
+# Display underline style text by ANSI bold code
 def ansi_bold(s: str) -> str:
     return f"{ANSI_BOLD}{s}{ANSI_RESET}"
 
-
+# Try to get environment variable, if get None, return default string
 def getenv_or(key: str, default: str) -> str:
     val = os.getenv(key)
     if val == None:
@@ -29,22 +31,24 @@ def getenv_or(key: str, default: str) -> str:
 
     return val
 
-
+# Print text with error prefix
 def eprint(fmt: str, *args, **kwargs):
     prefix = "\033[0;31m[⚠️ ERROR]\033[0m"
     print(f"{prefix} {fmt}", *args, file=sys.stderr, **kwargs)
 
 
+# Print text with warning prefix
 def warn(fmt: str, *args, **kwargs):
     prefix = "\033[0;33m[💡 WARNING]\033[0m"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 
+# Print text with info prefix
 def info(fmt: str, *args, **kwargs):
     prefix = f"{ANSI_GREEN}[🟩 INFO]{ANSI_RESET}"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
-
+# A argument parser builder function
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="An asp & archbuild & rsync wrapper script"
@@ -103,7 +107,7 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
-
+# Return boolean value to indicate an executable is found on local machine
 async def has_exec(exec: str) -> bool:
     script = f"command -v {exec}"
 
@@ -134,11 +138,13 @@ def try_get_context() -> (str | None):
         eprint(f"Fail to open .ctx.json file")
         raise
 
-
-async def test_server(server: str, debug=False):
+# Use uptime command to get the load for the specified server.
+# Return None if it fail to run `uptime` command on the given ssh server.
+# Return a tuple pair with server name and current load if successfully run the command.
+async def test_server(server: str, debug=False) -> tuple[str, float] | None:
     cmd = f"/usr/bin/ssh {server} uptime"
     if debug:
-        dbg(f"Testing server: {server}")
+        warn(f"Testing server: {server}")
     proc = await asyncio.create_subprocess_shell(
         cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -149,13 +155,17 @@ async def test_server(server: str, debug=False):
         eprint(
             f"Fail to get uptime information from server: {server}\n\tErr: {stderr.decode()}"
         )
-        return -1
+        return None
 
     output = stdout.decode()
     load = float(output.split(",").pop().strip())
     return (server, load)
 
 
+# Asynchronously run load test on the given servers.
+# Use environment variable `RVSERVERS` to update the server list.
+# For example:
+#   RVSERVERS="luxio,shinx" raw --update-server
 async def get_server(force=False) -> str:
     # if force update, skip this
     if not force:
@@ -182,12 +192,6 @@ async def get_server(force=False) -> str:
         if lowest == 0.00 or load < lowest:
             lowest = load
             select = server
-
-    # save
-    new_context = '{"server":"%s"}' % select
-    # overwrite the json file
-    with open(".ctx.json", "w") as f:
-        f.write(new_context)
 
     return select
 
@@ -224,6 +228,9 @@ async def handle_test(args: list[str]) -> int:
     return 0
 
 
+# An object to store the current build context.
+# Initialize it with server and package name.
+# Or initialize it with the JSON file path.
 class BuildContext:
     def __init__(
         self,
@@ -247,6 +254,13 @@ class BuildContext:
             self.server = server
             self.package = package
 
+    # Prepare the build environment for building the packege with the below steps:
+    #   1. mkdir -p ${RVPKGPATH:-/home/user/riscv/package}
+    #   2. mkdir -p ${RVCACHEPATH:-/home/user/.cache/rvpkgcache}
+    #   3. asp update
+    #   4. if [[ -d $RVPKGPATH/$PACKAGE ]]; then asp checkout $PACKAGE; fi
+    #   5. rsync $SERVER/$RVPKGPATH/$PACKAGE/trunk/PKGBUILD .
+    #   6. setconf $RVPKGPATH/$PACKAGE/trunk/PKGBUILD arch "(riscv64 x86_64)"
     async def prepare(self) -> None:
         home_dir = await self.ssh("echo $HOME")
 
@@ -277,6 +291,9 @@ class BuildContext:
             f'cd {self.pkgpath}/trunk && setconf PKGBUILD arch "(riscv64 x86_64)"'
         )
 
+    # Run a command and return its stdout string. If the param `expect_fail` is True,
+    # It return None. If the command is not expect to fail, it print the error message
+    # to the stdout.
     async def ssh(self, cmd: str, expect_fail=False) -> str | None:
         proc = await asyncio.create_subprocess_shell(
             f"/usr/bin/ssh {self.server} '{cmd}'",
@@ -291,6 +308,7 @@ class BuildContext:
                 eprint(f"Fail to run command {cmd}\n\nGet error:\n\t{stderr.decode()}")
             return None
 
+    # Send a file to the current package's trunk path
     async def send_file(self, file: str) -> None:
         proc = await asyncio.create_subprocess_shell(
             f"/usr/bin/rsync -az {file} {self.server}:{self.pkgpath}/trunk/",
@@ -303,6 +321,7 @@ class BuildContext:
             eprint(f"Fail to send file {file}\n\nGet error:\n\t{stderr.decode()}")
             return None
 
+    # Pull a file from the given path
     async def pull_file(self, path: str) -> None:
         proc = await asyncio.create_subprocess_shell(
             f"/usr/bin/rsync -az {self.server}:{path} .",
@@ -316,6 +335,8 @@ class BuildContext:
                 f"Fail to pull file from path {ansi_underline(path)}\n\nGet error:\n\t{stderr}"
             )
 
+    # An infinite loop to read the stderr from given StreamReader.
+    # If the stderr is about the gpg key error, it will return the missing gpg key finger print.
     async def read_stderr(self, stream: asyncio.StreamReader | None) -> str | None:
         gpg_key_not_found_flag = re.compile(r"\(unknown public key ([0-9a-fA-F]+)\)")
 
@@ -341,6 +362,8 @@ class BuildContext:
                 info("Downloaded, rebuild the package...")
                 return match.group(1)
 
+    # A wrapper function to run the archbuild command. It will retry the archbuild command
+    # if the error is gpg key missing error.
     async def archbuild(self) -> int | None:
         change_dir = f"cd {self.pkgpath}/trunk"
         build_cmd = f'{change_dir};extra-riscv64-build -- -d "{self.cachepath}:/var/cache/pacman/pkg/"'
@@ -362,6 +385,7 @@ class BuildContext:
         code = await proc.wait()
         return code
 
+    # The main function that should be called by outside to start an actual package build
     async def build(self) -> int:
         info("Start building")
         code = await self.archbuild()
@@ -372,6 +396,7 @@ class BuildContext:
         await self.after_build()
         return 1
 
+    # Download build log if the log is exist
     async def download_log(self) -> None:
         if self.ssh(f"test -e {self.pkgpath}/trunk/*.log", True) != None:
             info("Downloading log")
@@ -379,6 +404,7 @@ class BuildContext:
         else:
             info("No log found for this package")
 
+    # Download remote PKGBUILD and build log
     async def after_build(self):
         eprint(f"Fail to build package {self.package}")
 
@@ -400,9 +426,12 @@ class BuildContext:
         return 1
 
 
+# A handler for build process
 async def handle_build(server: str, package: str, prepare=False, rebuild=False) -> int:
     ctx: BuildContext
 
+    info("Try loading build context")
+    # Read context when no package name is given
     if package == "<NONE>":
         info("No package name specified, loading local context!")
         if not os.path.exists(".ctx.json"):
@@ -412,12 +441,15 @@ async def handle_build(server: str, package: str, prepare=False, rebuild=False) 
     else:
         ctx = BuildContext(server=server, package=package)
 
+    # prepare the build environment
     await ctx.prepare()
 
+    # Do not run build script when enable prepare mode
     if prepare:
         info("Prepare jobs is done, exiting...")
         return 0
 
+    # sending local PKGBUILD file to remote
     if rebuild:
         if os.path.exists("PKGBUILD"):
             info("Sending local PKGBUILD to remote")
@@ -425,6 +457,7 @@ async def handle_build(server: str, package: str, prepare=False, rebuild=False) 
         else:
             eprint("No PKGBUILD file found on local")
 
+    # Finally start the build
     return await ctx.build()
 
 
@@ -432,13 +465,17 @@ async def handle_clean() -> int:
     return 0
 
 
+# The script main entry
 async def run() -> int:
+    # parse command line argument
     args = parse_args()
 
+    # For debugging
     if args.test_func != None:
         code = await handle_test(args.test_func)
         return code
 
+    # Checking dependencies
     has_ssh = await has_exec("ssh")
     if not has_ssh:
         eprint("No ssh found on this machine, aborted")
@@ -448,6 +485,7 @@ async def run() -> int:
         eprint("No rsync found on this machine, aborted")
         return 1
 
+    # Benchmark servers
     server = ""
     if args.server == None:
         server = await get_server(force=args.force_update_server)
@@ -456,10 +494,11 @@ async def run() -> int:
 
     info(f"Selected Server: {ANSI_GREEN}{ANSI_BOLD}{server}{ANSI_RESET}")
 
-    # return when using --update-server flag
+    # Do not perform build when using --update-server flag
     if args.force_update_server:
         return 0
 
+    # Do not perform build when using --clean flag
     if args.clean_mode:
         return await handle_clean()
 
