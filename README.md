@@ -9,7 +9,7 @@ curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/mas
 - Usage:
 
 ```bash
-# Run server test, then run the asp checkout and extra-riscv64-build
+# Create a directory at current directory, then put all the file inside of it
 ./raw <PKG>
 
 # Send the local PKGBUILD to remote, and rerun the build
@@ -29,9 +29,10 @@ curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/mas
 ## TODO
 
 - [ ] Add download source
-- [ ] Add context - json dumper
+- [x] Add context - json dumper
 - [ ] Document
 - [ ] Smoking test
+- [ ] Manage Multiple project
 - [x] Add GPG Key auto download
 
 ## My workflow
@@ -39,45 +40,45 @@ curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/mas
 - Failing package
 
 ```bash
-# Preparing
+# Create a workspace
 mkdir -p $HOME/riscv/packages
 cd $HOME/riscv/packages
-# Assuming that I am going to fix iana-etc
-mkdir iana-etc
-cd iana-etc
 curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/master/raw' -o ./raw
+
+# Assuming that I am going to fix iana-etc
 
 # First try
 ./raw iana-etc
 
 # If fail
-ls -a
+ls -a $HOME/riscv/packages/iana-etc
+
 # output
 # .ctx.json PKGBUILD raw build.log prepare.log ...
 
 # If I need to modify source code
-./raw --download-source
-ls -a
+./raw --download-source iana-etc
+
+ls -a $HOME/riscv/packages/iana-etc
+
 # output
-# .ctx.json PKGBUILD raw build.log prepare.log iana-etc-src/ ...
+# Same as above, but we have a new directory for the source code
+# ...... src/
 
 
 # After fix
-./raw --send a.patch b.patch c.patch
-./raw --rebuild
+./raw --send a.patch b.patch c.patch iana-etc
+./raw --rebuild iana-etc
 ```
 
 - Rotten package
 
 ```bash
-mkdir iana-etc
-cd iana-etc
-
 # if the remote and local doesn't download PKGBUILD file yet
 ./raw iana-etc --prepare
 
-cp archriscv-packages/iana-etc/riscv64.patch .
-patch -Ni riscv64.patch
+cp archriscv-packages/iana-etc/riscv64.patch ./iana-etc/
+patch -d ./iana-etc -Ni riscv64.patch
 
 ./raw iana-etc --rebuild
 ```
@@ -100,4 +101,24 @@ E --> F[Download GPG Key]
 G --> D
 B --> |In prepare mode| Z
 F --> D
+```
+
+- The possible multiple project management
+
+```text
+~/riscv/packages/
+  |- raw
+  |- package-a/
+      |- src/
+        |- ...source code...
+      |- PKGBUILD
+      |- .ctx.json
+      |- packageA-ver-rel-build.log
+      |- fix.patch
+  |- package-b/
+      |- src/
+        |- ...source code...
+      |- PKGBUILD
+      |- .ctx.json
+      |- packageB-ver-rel-check.log
 ```
