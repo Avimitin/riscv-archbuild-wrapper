@@ -41,6 +41,8 @@ def eprint(fmt: str, *args, **kwargs):
     prefix = f"{ANSI_RED}{ANSI_BOLD}ERROR{ANSI_RESET}"
     if not DISABLE_EMOJI:
         prefix = f"{emoji}{prefix}"
+    else:
+        prefix = f"[{prefix}]"
     print(f"{prefix} {fmt}", *args, file=sys.stderr, **kwargs)
 
 
@@ -50,6 +52,8 @@ def warn(fmt: str, *args, **kwargs):
     prefix = f"{ANSI_YELLOW}{ANSI_BOLD}WARNING{ANSI_RESET}"
     if not DISABLE_EMOJI:
         prefix = f"{emoji}{prefix}"
+    else:
+        prefix = f"[{prefix}]"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 
@@ -59,6 +63,8 @@ def info(fmt: str, *args, **kwargs):
     prefix = f"{ANSI_GREEN}{ANSI_BOLD}INFO{ANSI_RESET}"
     if not DISABLE_EMOJI:
         prefix = f"{emoji}{prefix}"
+    else:
+        prefix = f"[{prefix}]"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 
