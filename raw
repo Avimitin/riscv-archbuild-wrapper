@@ -285,39 +285,50 @@ class BuildContext:
     #   5. rsync $SERVER/$RVPKGPATH/$PACKAGE/trunk/PKGBUILD .
     #   6. setconf $RVPKGPATH/$PACKAGE/trunk/PKGBUILD arch "(riscv64 x86_64)"
     async def prepare(self) -> None:
-        home_dir = await self.ssh("echo $HOME")
+        home_dir = await self._ssh("echo $HOME")
 
         pkgpath = getenv_or("RVPKGPATH", f"{home_dir}/riscv/packages")
         self.cachepath = getenv_or("RVCACHEPATH", f"{home_dir}/.cache/rvpkgcache")
 
-        await self.ssh(f"mkdir -p {pkgpath}")
+        await self._ssh(f"mkdir -p {pkgpath}")
         info(f"PKGBUILD Path: {ansi_underline(pkgpath)}")
 
-        await self.ssh(f"mkdir -p {self.cachepath}")
+        await self._ssh(f"mkdir -p {self.cachepath}")
         info(f"Package Cache: {ansi_underline(self.cachepath)}")
 
         info("Running asp update")
-        await self.ssh("asp update")
+        await self._ssh("asp update")
 
         info("Preparing PKGBUILD file")
-        if await self.ssh(f"test -d {pkgpath}/{self.package}", True) == None:
+        if await self._ssh(f"test -d {pkgpath}/{self.package}", True) == None:
             info(f"Downloading {ansi_bold(self.package)} PKGBUILD file")
-            await self.ssh(f"cd {pkgpath} && asp checkout {self.package}")
+            await self._ssh(f"cd {pkgpath} && asp checkout {self.package}")
 
         self.pkgpath = f"{pkgpath}/{self.package}"
 
         info("Save a copy of the PKGBUILD to local")
         if not os.path.exists("PKGBUILD"):
-            await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+            await self._pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
 
-        await self.ssh(
+        await self._ssh(
             f'cd {self.pkgpath}/trunk && setconf PKGBUILD arch "(riscv64 x86_64)"'
         )
+
+    # The main function that should be called by outside to start an actual package build
+    async def build(self) -> int:
+        info("Start building")
+        code = await self._archbuild()
+        if code == 0:
+            info(f"Package {ansi_bold(self.package)} is successfully built!")
+            return 0
+
+        await self._after_build()
+        return 1
 
     # Run a command and return its stdout string. If the param `expect_fail` is True,
     # It return None. If the command is not expect to fail, it print the error message
     # to the stdout.
-    async def ssh(self, cmd: str, expect_fail=False) -> str | None:
+    async def _ssh(self, cmd: str, expect_fail=False) -> str | None:
         proc = await asyncio.create_subprocess_shell(
             f"/usr/bin/ssh {self.server} '{cmd}'",
             stdout=asyncio.subprocess.PIPE,
@@ -332,7 +343,7 @@ class BuildContext:
             return None
 
     # Send a file to the current package's trunk path
-    async def send_file(self, file: str) -> None:
+    async def _send_file(self, file: str) -> None:
         proc = await asyncio.create_subprocess_shell(
             f"/usr/bin/rsync -az {file} {self.server}:{self.pkgpath}/trunk/",
             stdout=asyncio.subprocess.DEVNULL,
@@ -345,7 +356,7 @@ class BuildContext:
             return None
 
     # Pull a file from the given path
-    async def pull_file(self, path: str) -> None:
+    async def _pull_file(self, path: str) -> None:
         proc = await asyncio.create_subprocess_shell(
             f"/usr/bin/rsync -az {self.server}:{path} .",
             stdout=asyncio.subprocess.DEVNULL,
@@ -360,7 +371,7 @@ class BuildContext:
 
     # An infinite loop to read the stderr from given StreamReader.
     # If the stderr is about the gpg key error, it will return the missing gpg key finger print.
-    async def read_stderr(self, stream: asyncio.StreamReader | None) -> str | None:
+    async def _read_stderr(self, stream: asyncio.StreamReader | None) -> str | None:
         gpg_key_not_found_flag = re.compile(r"\(unknown public key ([0-9a-fA-F]+)\)")
 
         if stream == None:
@@ -381,13 +392,13 @@ class BuildContext:
             match = gpg_key_not_found_flag.search(line)
             if match:
                 info("GPG key not found on local, try downloading...")
-                await self.ssh("gpg --recv-keys " + match.group(1))
+                await self._ssh("gpg --recv-keys " + match.group(1))
                 info("Downloaded, rebuild the package...")
                 return match.group(1)
 
     # A wrapper function to run the archbuild command. It will retry the archbuild command
     # if the error is gpg key missing error.
-    async def archbuild(self) -> int | None:
+    async def _archbuild(self) -> int | None:
         change_dir = f"cd {self.pkgpath}/trunk"
         build_cmd = f'{change_dir};extra-riscv64-build -- -d "{self.cachepath}:/var/cache/pacman/pkg/"'
         proc = await asyncio.create_subprocess_shell(
@@ -395,7 +406,7 @@ class BuildContext:
             stderr=asyncio.subprocess.PIPE,
         )
 
-        gpg_key = await self.read_stderr(proc.stderr)
+        gpg_key = await self._read_stderr(proc.stderr)
         if gpg_key != None:
             info("Waiting for previous process finish its jobs")
             await proc.wait()
@@ -408,44 +419,40 @@ class BuildContext:
         code = await proc.wait()
         return code
 
-    # The main function that should be called by outside to start an actual package build
-    async def build(self) -> int:
-        info("Start building")
-        code = await self.archbuild()
-        if code == 0:
-            info(f"Package {ansi_bold(self.package)} is successfully built!")
-            return 0
-
-        await self.after_build()
-        return 1
-
     # Download build log if the log is exist
-    async def download_log(self) -> None:
-        if self.ssh(f"test -e {self.pkgpath}/trunk/*.log", True) != None:
+    async def _download_log(self) -> None:
+        if self._ssh(f"test -e {self.pkgpath}/trunk/*.log", True) != None:
             info("Downloading log")
-            await self.pull_file(f"{self.pkgpath}/trunk/*.log")
+            await self._pull_file(f"{self.pkgpath}/trunk/*.log")
         else:
             info("No log found for this package")
 
+    def _save(self):
+        info("Saving context")
+        jstr = json.dumps(self.__dict__)
+        with open(".ctx.json", "w") as f:
+            f.write(jstr)
+
     # Download remote PKGBUILD and build log
-    async def after_build(self):
+    async def _after_build(self):
         eprint(f"Fail to build package {self.package}")
 
         info("Pulling remote PKGBUILD")
         if not os.path.exists("PKGBUILD"):
-            await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+            await self._pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
         else:
             ok = input(
                 "There is a PKGBUILD at local already, do you want to cover it? [y/N]: "
             )
             if ok == "y" or ok == "Y":
                 info("Downloading PKGBUILD")
-                await self.pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
+                await self._pull_file(f"{self.pkgpath}/trunk/PKGBUILD")
 
-        info("Saving context")
-        jstr = json.dumps(self.__dict__)
-        with open(".ctx.json", "w") as f:
-            f.write(jstr)
+        # Download log if it exist
+        await self._download_log()
+
+        # Save build context to json file
+        self._save()
         return 1
 
 
@@ -476,7 +483,7 @@ async def handle_build(server: str, package: str, prepare=False, rebuild=False) 
     if rebuild:
         if os.path.exists("PKGBUILD"):
             info("Sending local PKGBUILD to remote")
-            await ctx.send_file("PKGBUILD")
+            await ctx._send_file("PKGBUILD")
         else:
             eprint("No PKGBUILD file found on local")
 
