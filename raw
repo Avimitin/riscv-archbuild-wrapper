@@ -53,7 +53,7 @@ def eprint(fmt: str, *args, **kwargs):
 # Print text with warning prefix
 def warn(fmt: str, *args, **kwargs):
     emoji = "💡"
-    prefix = f"{ANSI_YELLOW}{ANSI_BOLD}WARNING{ANSI_RESET}"
+    prefix = f"{ANSI_YELLOW}{ANSI_BOLD}WARN{ANSI_RESET}"
     if not DISABLE_EMOJI:
         prefix = f"{emoji}{prefix}"
     else:
