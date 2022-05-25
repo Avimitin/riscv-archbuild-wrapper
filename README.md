@@ -1,5 +1,8 @@
 # RAW (RISC-V Archbuild Wrapper)
 
+**CAVEAT**: This project is still under development. Most of the features mentioned in
+README might not be implemented yet.
+
 - Install:
 
 ```bash
