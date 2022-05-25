@@ -365,7 +365,7 @@ class BuildContext:
                 "This package is in noqemu black list, but you are not building it on RISC-V board."
             )
             confirm = input("Do you still want to continue? [y/N]: ")
-            if confirm != "y" and confirm != "Y":
+            if confirm != "y" or confirm != "Y":
                 info("Exit by user")
                 sys.exit(1)
 
