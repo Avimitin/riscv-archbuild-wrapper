@@ -31,17 +31,17 @@ def getenv_or(key: str, default: str) -> str:
 
 
 def eprint(fmt: str, *args, **kwargs):
-    prefix = "\033[0;31m[ERROR]\033[0m"
+    prefix = "\033[0;31m[⚠️ ERROR]\033[0m"
     print(f"{prefix} {fmt}", *args, file=sys.stderr, **kwargs)
 
 
-def dbg(fmt: str, *args, **kwargs):
-    prefix = "\033[0;33m[DEBUG]\033[0m"
+def warn(fmt: str, *args, **kwargs):
+    prefix = "\033[0;33m[💡 WARNING]\033[0m"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 
 def info(fmt: str, *args, **kwargs):
-    prefix = f"{ANSI_GREEN}[INFO]{ANSI_RESET}"
+    prefix = f"{ANSI_GREEN}[🟩 INFO]{ANSI_RESET}"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 
