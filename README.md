@@ -32,6 +32,7 @@ curl -sL 'https://raw.githubusercontent.com/Avimitin/riscv-archbuild-wrapper/mas
 - [ ] Add context - json dumper
 - [ ] Document
 - [ ] Smoking test
+- [x] Add GPG Key auto download
 
 ## My workflow
 
@@ -79,4 +80,24 @@ cp archriscv-packages/iana-etc/riscv64.patch .
 patch -Ni riscv64.patch
 
 ./raw iana-etc --rebuild
+```
+
+## Design
+
+```mermaid
+flowchart
+
+User --> Script{Params}
+Script --> |raw pkgname| A[Create new build context]
+Script --> |raw --rebuild| G[Send local PKGBUILD to remote]
+Script --> |raw --prepare| B
+A --> B[asp checkout on remote]
+B --> C[copy PKGBUILD to local]
+C --> D{Start build}
+D --> |Other Error| Z[Exit]
+D --> |Met error| E[GPG Key missing]
+E --> F[Download GPG Key]
+G --> D
+B --> |In prepare mode| Z
+F --> D
 ```
