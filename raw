@@ -316,35 +316,52 @@ class BuildContext:
                 f"Fail to pull file from path {ansi_underline(path)}\n\nGet error:\n\t{stderr}"
             )
 
-    async def read_stream(self, stream: asyncio.StreamReader|None) -> str|None:
-        p = re.compile(r"\(unknown public key ([0-9a-fA-F]+)\)")
+    async def read_stream(self, stream: asyncio.StreamReader | None) -> str | None:
+        gpg_key_not_found_flag = re.compile(r"\(unknown public key ([0-9a-fA-F]+)\)")
+        before_dep_install = True
+
         if stream == None:
             return None
+
         while True:
+            # read line from stream
             line = await stream.readline()
             if not line:
                 return None
+
+            line = line.decode().strip()
+
+            # redirect output to stdout
             print(line)
-            match = p.match(line.decode())
+
+            # Test if current line is about gpg key missing
+            match = gpg_key_not_found_flag.search(line)
             if match:
                 info("GPG key not found on local, try downloading...")
-                await self.ssh("ssh --recv-keys "+ match.group(1))
+                await self.ssh("gpg --recv-keys " + match.group(1))
                 info("Downloaded, rebuild the package...")
                 return match.group(1)
 
-    async def archbuild(self) -> int|None:
+    async def archbuild(self) -> int | None:
         change_dir = f"cd {self.pkgpath}/trunk"
-        build_cmd = (
-            f'extra-riscv64-build -- -d "{self.cachepath}:/var/cache/pacman/pkg/"'
-        )
+        build_cmd = f'{change_dir};extra-riscv64-build -- -d "{self.cachepath}:/var/cache/pacman/pkg/"'
         proc = await asyncio.create_subprocess_shell(
-            f"/usr/bin/ssh {self.server} '{change_dir};{build_cmd}'",
-            stdout=asyncio.subprocess.PIPE,
+            f"/usr/bin/ssh {self.server} '{build_cmd}'",
+            stderr=asyncio.subprocess.PIPE,
         )
-        gpg_key = await self.read_stream(proc.stdout)
 
-        await proc.wait()
-        return proc.returncode
+        gpg_key = await self.read_stream(proc.stderr)
+        if gpg_key != None:
+            info("Waiting for before process finish its jobs")
+            await proc.wait()
+
+            info("Restarting new build process")
+            proc = await asyncio.create_subprocess_shell(
+                f"/usr/bin/ssh {self.server} '{build_cmd}'",
+            )
+
+        code = await proc.wait()
+        return code
 
     async def build(self) -> int:
         info("Start building")
@@ -352,8 +369,6 @@ class BuildContext:
         if code == 0:
             info(f"Package {ansi_bold(self.package)} is successfully built!")
             return 0
-
-        code = await self.archbuild()
 
         await self.after_build()
         return 1
