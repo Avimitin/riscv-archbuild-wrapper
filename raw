@@ -9,12 +9,12 @@ import json
 import re
 
 ANSI_GREEN = "\033[0;32m"
-ANSI_YELLOW="\033[0;33m"
-ANSI_RED="\033[0;31m"
+ANSI_YELLOW = "\033[0;33m"
+ANSI_RED = "\033[0;31m"
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
 ANSI_UNDERLINE = "\033[4m"
-
+DISABLE_EMOJI = False
 
 # Display underline style text by ANSI escape code
 def ansi_underline(s: str) -> str:
@@ -25,6 +25,7 @@ def ansi_underline(s: str) -> str:
 def ansi_bold(s: str) -> str:
     return f"{ANSI_BOLD}{s}{ANSI_RESET}"
 
+
 # Try to get environment variable, if get None, return default string
 def getenv_or(key: str, default: str) -> str:
     val = os.getenv(key)
@@ -33,22 +34,33 @@ def getenv_or(key: str, default: str) -> str:
 
     return val
 
+
 # Print text with error prefix
 def eprint(fmt: str, *args, **kwargs):
-    prefix = f"⚠️ {ANSI_RED}{ANSI_BOLD}ERROR{ANSI_RESET}"
+    emoji = "⚠️"
+    prefix = f"{ANSI_RED}{ANSI_BOLD}ERROR{ANSI_RESET}"
+    if not DISABLE_EMOJI:
+        prefix = f"{emoji}{prefix}"
     print(f"{prefix} {fmt}", *args, file=sys.stderr, **kwargs)
 
 
 # Print text with warning prefix
 def warn(fmt: str, *args, **kwargs):
-    prefix = f"💡{ANSI_YELLOW}{ANSI_BOLD}WARNING{ANSI_RESET}"
+    emoji = "💡"
+    prefix = f"{ANSI_YELLOW}{ANSI_BOLD}WARNING{ANSI_RESET}"
+    if not DISABLE_EMOJI:
+        prefix = f"{emoji}{prefix}"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 
 # Print text with info prefix
 def info(fmt: str, *args, **kwargs):
-    prefix = f"{ANSI_GREEN}🟢{ANSI_BOLD}INFO{ANSI_RESET}"
+    emoji = "🟢"
+    prefix = f"{ANSI_GREEN}{ANSI_BOLD}INFO{ANSI_RESET}"
+    if not DISABLE_EMOJI:
+        prefix = f"{emoji}{prefix}"
     print(f"{prefix} {fmt}", *args, **kwargs)
+
 
 # A argument parser builder function
 def parse_args() -> argparse.Namespace:
@@ -86,6 +98,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable clean mode: Clean local and remote package file",
     )
+    # --disable-emoji
+    parser.add_argument(
+        "--disable-emoji",
+        dest="no_emoji",
+        action="store_true",
+        help="Disable emoji for logging text",
+    )
     # -p/--prepare
     parser.add_argument(
         "-p",
@@ -108,6 +127,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     return parser.parse_args()
+
 
 # Return boolean value to indicate an executable is found on local machine
 async def has_exec(exec: str) -> bool:
@@ -139,6 +159,7 @@ def try_get_context() -> (str | None):
     except:
         eprint(f"Fail to open .ctx.json file")
         raise
+
 
 # Use uptime command to get the load for the specified server.
 # Return None if it fail to run `uptime` command on the given ssh server.
@@ -471,6 +492,10 @@ async def handle_clean() -> int:
 async def run() -> int:
     # parse command line argument
     args = parse_args()
+
+    if args.no_emoji:
+        global DISABLE_EMOJI
+        DISABLE_EMOJI = True
 
     # For debugging
     if args.test_func != None:
