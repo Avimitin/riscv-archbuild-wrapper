@@ -9,6 +9,8 @@ import json
 import re
 
 ANSI_GREEN = "\033[0;32m"
+ANSI_YELLOW="\033[0;33m"
+ANSI_RED="\033[0;31m"
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
 ANSI_UNDERLINE = "\033[4m"
@@ -33,19 +35,19 @@ def getenv_or(key: str, default: str) -> str:
 
 # Print text with error prefix
 def eprint(fmt: str, *args, **kwargs):
-    prefix = "\033[0;31m[⚠️ ERROR]\033[0m"
+    prefix = f"⚠️ {ANSI_RED}{ANSI_BOLD}ERROR{ANSI_RESET}"
     print(f"{prefix} {fmt}", *args, file=sys.stderr, **kwargs)
 
 
 # Print text with warning prefix
 def warn(fmt: str, *args, **kwargs):
-    prefix = "\033[0;33m[💡 WARNING]\033[0m"
+    prefix = f"💡{ANSI_YELLOW}{ANSI_BOLD}WARNING{ANSI_RESET}"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 
 # Print text with info prefix
 def info(fmt: str, *args, **kwargs):
-    prefix = f"{ANSI_GREEN}[🟩 INFO]{ANSI_RESET}"
+    prefix = f"{ANSI_GREEN}🟢{ANSI_BOLD}INFO{ANSI_RESET}"
     print(f"{prefix} {fmt}", *args, **kwargs)
 
 # A argument parser builder function
