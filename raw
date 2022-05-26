@@ -289,7 +289,7 @@ class BuildContext:
             self.package = package
 
     async def _get_noqemu_list(self) -> str | None:
-        info("Fetching noqemu blacklist")
+        info("Checking noqemu blacklist")
         # If we have local version
         if os.path.exists("noqemu-list.txt"):
             async with aiofiles.open("noqemu-list.txt", "r") as file:
