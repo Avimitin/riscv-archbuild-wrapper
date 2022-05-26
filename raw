@@ -22,15 +22,17 @@ except ModuleNotFoundError:
         "Fail to import `aiofiles` module, please install it with `sudo pacman -S python-aiofiles`"
     )
 
+# List of global constant value
 ANSI_GREEN = "\033[0;32m"
 ANSI_YELLOW = "\033[0;33m"
 ANSI_RED = "\033[0;31m"
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
 ANSI_UNDERLINE = "\033[4m"
-DISABLE_EMOJI = True
-
 NOQEMU_LIST_URL = "https://raw.githubusercontent.com/felixonmars/archriscv-packages/master/qemu-user-blacklist.txt"
+
+# Disable emoji flag
+DISABLE_EMOJI = True
 
 # Display underline style text by ANSI escape code
 def ansi_underline(s: str) -> str:
