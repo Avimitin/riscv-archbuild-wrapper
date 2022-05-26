@@ -7,8 +7,20 @@ import asyncio
 import os
 import json
 import re
-import aiohttp
-import aiofiles
+
+try:
+    import aiohttp
+except ModuleNotFoundError:
+    print(
+        "Fail to import aiohttp module, please install it with `sudo pacman -S python-aiohttp`"
+    )
+
+try:
+    import aiofiles
+except ModuleNotFoundError:
+    print(
+        "Fail to import `aiofiles` module, please install it with `sudo pacman -S python-aiofiles`"
+    )
 
 ANSI_GREEN = "\033[0;32m"
 ANSI_YELLOW = "\033[0;33m"
