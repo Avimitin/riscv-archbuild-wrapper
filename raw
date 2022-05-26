@@ -33,7 +33,7 @@ def ansi_bold(s: str) -> str:
 # Try to get environment variable, if get None, return default string
 def getenv_or(key: str, default: str) -> str:
     val = os.getenv(key)
-    if val == None:
+    if val is None:
         return default
 
     return val
@@ -204,7 +204,7 @@ async def get_server(force=False) -> str:
     if not force:
         # if we have .ctx.json file at local
         context = try_get_context()
-        if not context == None:
+        if not context is None:
             context = json.loads(context)
             return context["server"]
 
@@ -282,7 +282,7 @@ class BuildContext:
             self.cachepath = ctx["cachepath"]
             self.noqemu_list_file = ctx["noqemu_list_file"]
         else:
-            if server == None or package == None:
+            if server is None or package is None:
                 eprint("BuildContext is init without enought argument!")
                 sys.exit(1)
             self.server = server
@@ -335,7 +335,7 @@ class BuildContext:
         await self._ssh("asp update")
 
         info("Preparing PKGBUILD file")
-        if await self._ssh(f"test -d {pkgpath}/{self.package}", True) == None:
+        if await self._ssh(f"test -d {pkgpath}/{self.package}", True) is None:
             info(f"Downloading {ansi_bold(self.package)} PKGBUILD file")
             await self._ssh(f"cd {pkgpath} && asp checkout {self.package}")
 
@@ -429,7 +429,7 @@ class BuildContext:
     async def _read_stderr(self, stream: asyncio.StreamReader | None) -> str | None:
         gpg_key_not_found_flag = re.compile(r"\(unknown public key ([0-9a-fA-F]+)\)")
 
-        if stream == None:
+        if stream is None:
             return None
 
         while True:
@@ -462,7 +462,7 @@ class BuildContext:
         )
 
         gpg_key = await self._read_stderr(proc.stderr)
-        if gpg_key != None:
+        if gpg_key is not None:
             info("Waiting for previous process finish its jobs")
             await proc.wait()
 
@@ -476,7 +476,7 @@ class BuildContext:
 
     # Download build log if the log is exist
     async def _download_log(self) -> None:
-        if self._ssh(f"test -e {self.pkgpath}/trunk/*.log", True) != None:
+        if await self._ssh(f"test -e {self.pkgpath}/trunk/*.log", True) is not None:
             info("Downloading log")
             await self._pull_file(f"{self.pkgpath}/trunk/*.log")
         else:
@@ -560,7 +560,7 @@ async def run() -> int:
         DISABLE_EMOJI = False
 
     # For debugging
-    if args.test_func != None:
+    if args.test_func is not None:
         code = await handle_test(args.test_func)
         return code
 
@@ -576,7 +576,7 @@ async def run() -> int:
 
     # Benchmark servers
     server = ""
-    if args.server == None:
+    if args.server is None:
         server = await get_server(force=args.force_update_server)
     else:
         server = args.server
