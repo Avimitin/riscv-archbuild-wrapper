@@ -564,6 +564,20 @@ async def handle_clean() -> int:
     return 0
 
 
+# check dependencies, return 1 if check fail, return 0 if all check pass
+async def is_missing_deps() -> bool:
+    has_ssh = await has_exec("ssh")
+    if not has_ssh:
+        eprint("No ssh found on this machine, aborted")
+        return True
+
+    has_rsync = await has_exec("rsync")
+    if not has_rsync:
+        eprint("No rsync found on this machine, aborted")
+        return True
+
+    return False
+
 # The script main entry
 async def run() -> int:
     # parse command line argument
@@ -579,13 +593,7 @@ async def run() -> int:
         return code
 
     # Checking dependencies
-    has_ssh = await has_exec("ssh")
-    if not has_ssh:
-        eprint("No ssh found on this machine, aborted")
-        return 1
-    has_rsync = await has_exec("rsync")
-    if not has_rsync:
-        eprint("No rsync found on this machine, aborted")
+    if is_missing_deps():
         return 1
 
     # Benchmark servers
