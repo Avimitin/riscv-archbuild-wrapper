@@ -16,7 +16,7 @@ ANSI_RED = "\033[0;31m"
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
 ANSI_UNDERLINE = "\033[4m"
-DISABLE_EMOJI = False
+DISABLE_EMOJI = True
 
 NOQEMU_LIST_URL = "https://raw.githubusercontent.com/felixonmars/archriscv-packages/master/qemu-user-blacklist.txt"
 
@@ -110,10 +110,10 @@ def parse_args() -> argparse.Namespace:
     )
     # --disable-emoji
     parser.add_argument(
-        "--disable-emoji",
-        dest="no_emoji",
+        "--fancy",
+        dest="fancy_mode",
         action="store_true",
-        help="Disable emoji for logging text",
+        help="Use emoji as logging prefix",
     )
     # -p/--prepare
     parser.add_argument(
@@ -555,9 +555,9 @@ async def run() -> int:
     # parse command line argument
     args = parse_args()
 
-    if args.no_emoji:
+    if args.fancy_mode:
         global DISABLE_EMOJI
-        DISABLE_EMOJI = True
+        DISABLE_EMOJI = False
 
     # For debugging
     if args.test_func != None:
